@@ -89,15 +89,19 @@ func AddTorrent(c *gin.Context, client *torrent.Client, store *models.TorrentSto
 					firstPiece := int(prioFile.Offset() / pieceLength)
 					lastPiece := int((prioFile.Offset() + prioFile.Length() - 1) / pieceLength)
 
-					// Prioritize beginning pieces (first 1MB) to get metadata quickly
-					startBytes := int64(1048576) // 1MB
-					endFirstPrioPiece := firstPiece + int(startBytes/pieceLength)
+					// Prioritize beginning pieces (e.g., first 30 pieces) for fast startup
+					const initialPiecesToPrioritizeAtStart = 30
+					endFirstPrioPiece := firstPiece + initialPiecesToPrioritizeAtStart - 1
 					if endFirstPrioPiece > lastPiece {
 						endFirstPrioPiece = lastPiece
 					}
+					// Ensure endFirstPrioPiece is valid and not less than firstPiece
+					if endFirstPrioPiece < firstPiece {
+						endFirstPrioPiece = firstPiece
+					}
 
-					fmt.Printf("Prioritizing start pieces %d-%d (covering up to %d bytes) for largest file %s\n",
-						firstPiece, endFirstPrioPiece, startBytes, prioFile.Path())
+					fmt.Printf("Prioritizing initial pieces %d-%d (approx %d pieces) for largest file %s\n",
+						firstPiece, endFirstPrioPiece, initialPiecesToPrioritizeAtStart, prioFile.Path())
 
 					for i := firstPiece; i <= endFirstPrioPiece; i++ {
 						if i >= 0 && i < t.NumPieces() {
@@ -105,18 +109,31 @@ func AddTorrent(c *gin.Context, client *torrent.Client, store *models.TorrentSto
 						}
 					}
 
-					// Also prioritize end pieces (last 1MB) to get metadata
-					endBytes := prioFile.Length() - startBytes
-					if endBytes < 0 {
-						endBytes = 0
+					// Also prioritize end pieces (last 1MB) to get metadata and file completion info
+					endBytesToPrioritize := int64(1048576) // Last 1MB
+					startByteForEndPrio := prioFile.Length() - endBytesToPrioritize
+					if startByteForEndPrio < prioFile.Offset() { // Ensure startByte is within the file's actual range in the torrent
+						startByteForEndPrio = 0 // If file is smaller than 1MB or offset is large, prioritize from its start
+					} else {
+						startByteForEndPrio -= prioFile.Offset() // Adjust to be relative to file start for piece calculation
 					}
-					startLastPrioPiece := int((prioFile.Offset() + endBytes) / pieceLength)
-					if startLastPrioPiece < firstPiece {
+
+					startLastPrioPiece := int((prioFile.Offset() + startByteForEndPrio) / pieceLength)
+
+					// Adjust startLastPrioPiece to avoid overlap with the initial prioritized block
+					// and ensure it's within valid piece range.
+					if startLastPrioPiece <= endFirstPrioPiece && endFirstPrioPiece < lastPiece {
+						startLastPrioPiece = endFirstPrioPiece + 1
+					}
+					if startLastPrioPiece > lastPiece {
+						startLastPrioPiece = lastPiece
+					}
+					if startLastPrioPiece < firstPiece { // Should not happen with above logic but as a safeguard
 						startLastPrioPiece = firstPiece
 					}
 
-					fmt.Printf("Prioritizing end pieces %d-%d (covering from byte %d) for largest file %s\n",
-						startLastPrioPiece, lastPiece, endBytes, prioFile.Path())
+					fmt.Printf("Prioritizing end pieces %d-%d (from byte offset approx %d in file) for largest file %s\n",
+						startLastPrioPiece, lastPiece, prioFile.Offset()+startByteForEndPrio, prioFile.Path())
 
 					for i := startLastPrioPiece; i <= lastPiece; i++ {
 						if i >= 0 && i < t.NumPieces() {
@@ -124,12 +141,17 @@ func AddTorrent(c *gin.Context, client *torrent.Client, store *models.TorrentSto
 						}
 					}
 
-					// Set normal priority for all other pieces
-					fmt.Printf("Setting normal priority for all other pieces of largest file from %d to %d\n",
-						firstPiece, lastPiece)
+					// Set normal priority for pieces between the initial start and initial end prioritized blocks.
+					// The sliding window will then manage priorities within its range.
+					fmt.Printf("Setting normal priority for pieces between initial start (ends %d) and initial end (starts %d) for %s\n",
+						endFirstPrioPiece, startLastPrioPiece, prioFile.Path())
 					for i := firstPiece; i <= lastPiece; i++ {
-						if i >= 0 && i < t.NumPieces() && i < startLastPrioPiece && i > endFirstPrioPiece {
-							t.Piece(i).SetPriority(torrent.PiecePriorityNormal)
+						if i >= 0 && i < t.NumPieces() {
+							// Check if the piece falls into one of the high-priority zones
+							isInitiallyPrioritized := (i >= firstPiece && i <= endFirstPrioPiece) || (i >= startLastPrioPiece && i <= lastPiece)
+							if !isInitiallyPrioritized {
+								t.Piece(i).SetPriority(torrent.PiecePriorityNormal)
+							}
 						}
 					}
 
@@ -166,7 +188,7 @@ func manageSlidingWindow(torrentFile *torrent.Torrent, file *torrent.File, piece
 
 	fmt.Printf("Starting sliding window manager for %s (%d pieces total)\n", file.Path(), totalPieces)
 
-	const windowSize = 50             // Number of pieces ahead to prioritize
+	const windowSize = 30             // Number of pieces ahead to prioritize
 	const sleepInterval = 1           // Check every 1 second
 	const maxIterations = 3 * 60 * 60 // Run for max 3 hours
 
