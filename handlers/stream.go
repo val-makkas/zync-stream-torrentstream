@@ -4,12 +4,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/anacrolix/torrent"
 	"github.com/gin-gonic/gin"
 
 	"github.com/val-makkas/absolute-cinema/torrentstream/models"
@@ -18,6 +16,7 @@ import (
 
 // StreamTorrentFile handles GET /stream/:infohash/:file_idx requests
 func StreamTorrentFile(c *gin.Context, store *models.TorrentStore) {
+	fmt.Println("STREAM_HANDLER_VERSION_3 - Entering StreamTorrentFile") // New distinct log message
 	infoHash := c.Param("infohash")
 	fileIdxStr := c.Param("file_idx")
 	fmt.Printf("Received /stream request for torrent: %s, file index: %s\n", infoHash, fileIdxStr)
@@ -40,7 +39,7 @@ func StreamTorrentFile(c *gin.Context, store *models.TorrentStore) {
 	}
 
 	// Wait for torrent metadata if not yet available
-	metadataTimeout := time.After(10 * time.Second)
+	metadataTimeout := time.After(5 * time.Second)
 	select {
 	case <-torrentFile.GotInfo():
 		// Got metadata, proceed
@@ -75,37 +74,36 @@ func StreamTorrentFile(c *gin.Context, store *models.TorrentStore) {
 	fmt.Printf("Starting stream for %s, file index %d: %s (size: %d bytes)\n", infoHash, fileIdx, file.Path(), fileLength)
 
 	// Increase the read-ahead window for this specific file to improve streaming
-	file.SetPriority(torrent.PiecePriorityNow)
+	// REMOVED: file.SetPriority(torrent.PiecePriorityNow)
 
-	// Set a larger buffer for better streaming (reduced buffering issues)
-	const bufferSize = 2 * 1024 * 1024 // 2MB buffer for streaming
+	// REMOVED: const bufferSize = 2 * 1024 * 1024 // 2MB buffer for streaming
 
-	// Calculate piece range for the file for prioritization
-	pieceLength := torrentFile.Info().PieceLength
-	firstPieceOfFile := int(file.Offset() / pieceLength)
-	lastPieceOfFile := int((file.Offset() + file.Length() - 1) / pieceLength)
-
-	// Prioritize the first several pieces more aggressively for fast start
-	// The number of pieces to prioritize upfront is calculated based on buffer size
-	piecesToPrioritize := int(bufferSize / pieceLength)
-	if piecesToPrioritize < 1 {
-		piecesToPrioritize = 1
-	}
-
-	endPieceToHighPrioritize := firstPieceOfFile + piecesToPrioritize
-	if endPieceToHighPrioritize > lastPieceOfFile {
-		endPieceToHighPrioritize = lastPieceOfFile
-	}
-
-	fmt.Printf("High prioritizing first %d pieces for file %s\n", piecesToPrioritize, file.Path())
-	for i := firstPieceOfFile; i <= endPieceToHighPrioritize; i++ {
-		if i >= 0 && i < torrentFile.NumPieces() {
-			torrentFile.Piece(i).SetPriority(torrent.PiecePriorityNow)
-		}
-	}
+	// REMOVED: Manual piece prioritization logic
+	// // Calculate piece range for the file for prioritization
+	// pieceLength := torrentFile.Info().PieceLength
+	// firstPieceOfFile := int(file.Offset() / pieceLength)
+	// lastPieceOfFile := int((file.Offset() + file.Length() - 1) / pieceLength)
+	//
+	// // Prioritize the first several pieces more aggressively for fast start
+	// // The number of pieces to prioritize upfront is calculated based on bufferSize
+	// piecesToPrioritize := int(bufferSize / pieceLength)
+	// if piecesToPrioritize < 1 {
+	// 	piecesToPrioritize = 1
+	// }
+	//
+	// endPieceToHighPrioritize := firstPieceOfFile + piecesToPrioritize
+	// if endPieceToHighPrioritize > lastPieceOfFile {
+	// 	endPieceToHighPrioritize = lastPieceOfFile
+	// }
+	//
+	// fmt.Printf("High prioritizing first %d pieces for file %s\n", piecesToPrioritize, file.Path())
+	// for i := firstPieceOfFile; i <= endPieceToHighPrioritize; i++ {
+	// 	if i >= 0 && i < torrentFile.NumPieces() {
+	// 		torrentFile.Piece(i).SetPriority(torrent.PiecePriorityNow)
+	// 	}
+	// }
 
 	// Set up HTTP response
-	c.Writer.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filepath.Base(file.Path())))
 	c.Writer.Header().Set("Content-Type", utils.GetContentType(file.Path()))
 	c.Writer.Header().Set("Content-Length", strconv.FormatInt(fileLength, 10))
 	c.Writer.Header().Set("Accept-Ranges", "bytes")
@@ -165,6 +163,10 @@ func StreamTorrentFile(c *gin.Context, store *models.TorrentStore) {
 	reader := file.NewReader()
 	defer reader.Close()
 	fmt.Printf("Created reader for file %s\n", file.Path())
+
+	const readaheadSize = 10 * 1024 * 1024 // Increased to 10MB readahead
+	reader.SetReadahead(readaheadSize)
+	fmt.Printf("Set readahead to %d bytes for file %s reader\n", readaheadSize, file.Path())
 
 	var seekErr error
 	_, seekErr = reader.Seek(start, io.SeekStart)

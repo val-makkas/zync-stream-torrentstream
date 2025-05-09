@@ -148,8 +148,11 @@ func GetFileProgress(c *gin.Context, store *models.TorrentStore) {
 		Timestamp:      currentTime,
 	}
 
+	// Determine readiness based on actual downloaded bytes for non-empty files
+	isReady := (calculatedBytesCompleted > 0 && fileLength > 0) || fileLength == 0
+
 	c.JSON(http.StatusOK, gin.H{
-		"ready":                          true,
+		"ready":                          isReady,
 		"file_path":                      file.Path(),
 		"completed_bytes_estimated":      calculatedBytesCompleted, // This is an estimation
 		"length_bytes":                   fileLength,
