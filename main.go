@@ -49,8 +49,12 @@ func main() {
 		handlers.GetTorrentStatus(c, torrentStore)
 	})
 
-	router.GET("/stream/:infohash/:file_idx", func(c *gin.Context) {
-		handlers.StreamTorrentFile(c, torrentStore)
+	router.GET("/hls/:infohash/:file_idx/:filename", func(c *gin.Context) {
+		handlers.StreamTorrentHLS(c, torrentStore)
+	})
+
+	router.GET("/hls/:infohash/:file_idx/seek/:seconds/:filename", func(c *gin.Context) {
+		handlers.StreamTorrentHLSSeek(c, torrentStore)
 	})
 
 	router.GET("/progress/:infohash/:file_idx", func(c *gin.Context) {

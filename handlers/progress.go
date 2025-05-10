@@ -151,6 +151,17 @@ func GetFileProgress(c *gin.Context, store *models.TorrentStore) {
 	// Determine readiness based on actual downloaded bytes for non-empty files
 	isReady := (calculatedBytesCompleted > 0 && fileLength > 0) || fileLength == 0
 
+	var duration float64
+	store.Mutex.RLock()
+	if store.Metadata != nil {
+		if m, ok := store.Metadata[infoHash]; ok {
+			if d, ok := m[fileIdx]; ok {
+				duration = d
+			}
+		}
+	}
+	store.Mutex.RUnlock()
+
 	c.JSON(http.StatusOK, gin.H{
 		"ready":                          isReady,
 		"file_path":                      file.Path(),
@@ -161,5 +172,6 @@ func GetFileProgress(c *gin.Context, store *models.TorrentStore) {
 		"total_pieces_in_file_range":     totalPiecesInFileRange,     // <-- How many pieces total for this file?
 		"percent_by_pieces":              percentByPieces,
 		"download_speed_bytes_per_sec":   downloadSpeedBytesPerSec, // <-- Download speed in bytes per second
+		"duration":                       duration,
 	})
 }

@@ -65,6 +65,17 @@ func PrioritizePieces(c *gin.Context, store *models.TorrentStore, requestedPiece
 	seekPositionBytes := int64(float64(fileLength) * req.Percentage / 100.0)
 	seekPositionPiece := int((file.Offset() + seekPositionBytes) / pieceLength)
 
+	// Prevent prioritizing if seeking to the very end (e.g., >99.5%)
+	if req.Percentage > 99.5 {
+		c.JSON(http.StatusOK, gin.H{
+			"message":           "Seek percentage too close to end; ignoring auto-seek to end.",
+			"ignored":           true,
+			"seekPositionPiece": seekPositionPiece,
+			"percentage":        req.Percentage,
+		})
+		return
+	}
+
 	// Create a window of pieces to prioritize around seek position
 	const priorityWindowSize = 20 // Prioritize 20 pieces ahead of seek position
 	startPriority := seekPositionPiece

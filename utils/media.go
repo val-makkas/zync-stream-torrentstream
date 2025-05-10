@@ -1,7 +1,10 @@
 package utils
 
 import (
+	"encoding/json"
+	"os/exec"
 	"path/filepath"
+	"strings"
 )
 
 // GetContentType returns the appropriate Content-Type header value based on file extension
@@ -57,4 +60,55 @@ func GetPopularTrackers() []string {
 		"udp://p4p.arenabg.com:1337/announce",
 		"udp://opentracker.io:6969/announce",
 	}
+}
+
+// FFProbeFormat represents the format information from ffprobe
+type FFProbeFormat struct {
+	Format struct {
+		FormatName string `json:"format_name"`
+	} `json:"format"`
+}
+
+// FFProbeStream represents a single stream's information from ffprobe
+type FFProbeStream struct {
+	CodecType string `json:"codec_type"`
+	CodecName string `json:"codec_name"`
+}
+
+// FFProbeResult represents the complete result from ffprobe
+type FFProbeResult struct {
+	Streams []FFProbeStream `json:"streams"`
+	Format  struct {
+		FormatName string `json:"format_name"`
+	} `json:"format"`
+}
+
+// IsBrowserCompatibleVideo returns true if the file is a browser-compatible MP4 (H264/AAC)
+// Uses extension for fast check, and ffprobe for codec check if available
+func IsBrowserCompatibleVideo(ffprobePath, filePath string) (bool, error) {
+	ext := strings.ToLower(filepath.Ext(filePath))
+	if ext == ".mp4" {
+		// Fast path: check codecs with ffprobe
+		cmd := exec.Command(ffprobePath, "-v", "error", "-select_streams", "v:0,a:0", "-show_entries", "stream=codec_type,codec_name", "-show_format", "-of", "json", filePath)
+		out, err := cmd.Output()
+		if err != nil {
+			return false, err
+		}
+		var result FFProbeResult
+		if err := json.Unmarshal(out, &result); err != nil {
+			return false, err
+		}
+		videoOk := false
+		audioOk := false
+		for _, s := range result.Streams {
+			if s.CodecType == "video" && (s.CodecName == "h264" || s.CodecName == "avc1") {
+				videoOk = true
+			}
+			if s.CodecType == "audio" && (s.CodecName == "aac" || s.CodecName == "mp4a") {
+				audioOk = true
+			}
+		}
+		return videoOk && audioOk, nil
+	}
+	return false, nil // Only .mp4 is considered browser compatible for direct serve
 }

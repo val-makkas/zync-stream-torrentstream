@@ -1,8 +1,14 @@
 package handlers
 
 import (
+	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/anacrolix/torrent"
@@ -157,6 +163,10 @@ func AddTorrent(c *gin.Context, client *torrent.Client, store *models.TorrentSto
 
 					// Start sliding window manager for this file
 					go manageSlidingWindow(t, prioFile, pieceLength, client)
+
+					// After torrent is added and metadata is available
+					fmt.Printf("[DURATION-DEBUG] About to call extractAndStoreDuration for infoHash=%s\n", req.InfoHash)
+					go extractAndStoreDuration(t, 0, store, req.InfoHash)
 				}
 			}
 		case <-time.After(60 * time.Second):
@@ -168,6 +178,64 @@ func AddTorrent(c *gin.Context, client *torrent.Client, store *models.TorrentSto
 		"message":  "Torrent added successfully",
 		"infoHash": req.InfoHash,
 	})
+}
+
+// extractAndStoreDuration extracts video duration using ffprobe and stores it in the TorrentStore metadata
+func extractAndStoreDuration(torrentFile *torrent.Torrent, fileIdx int, store *models.TorrentStore, infoHash string) {
+	fmt.Printf("[DURATION-DEBUG] ENTER extractAndStoreDuration for infoHash=%s fileIdx=%d\n", infoHash, fileIdx)
+	files := torrentFile.Files()
+	fmt.Printf("[DURATION-DEBUG] files len=%d\n", len(files))
+	for i, f := range files {
+		fmt.Printf("[DURATION-DEBUG] file[%d]: name=%s, length=%d\n", i, f.Path(), f.Length())
+	}
+	if fileIdx < 0 || fileIdx >= len(files) {
+		fmt.Printf("[DURATION] Invalid fileIdx: %d (files len=%d)\n", fileIdx, len(files))
+		return
+	}
+	file := files[fileIdx]
+	tempFile, err := os.CreateTemp("", "probe-*.mp4")
+	if err != nil {
+		fmt.Printf("[DURATION] Failed to create temp file: %v\n", err)
+		return
+	}
+	defer os.Remove(tempFile.Name())
+	reader := file.NewReader()
+	written, err := io.CopyN(tempFile, reader, 10*1024*1024)
+	if err != nil && err != io.EOF {
+		fmt.Printf("[DURATION] Error copying data to temp file: %v\n", err)
+		return
+	}
+	fmt.Printf("[DURATION] Copied %d bytes to temp file %s\n", written, tempFile.Name())
+	tempFile.Close()
+	ffprobePath := filepath.Join(filepath.Dir(os.Args[0]), "ffprobe_bin", "ffprobe.exe")
+	fmt.Printf("[DURATION] Running ffprobe: %s\n", ffprobePath)
+	cmd := exec.Command(ffprobePath, "-v", "error", "-show_entries", "format=duration", "-of", "json", tempFile.Name())
+	output, err := cmd.Output()
+	if err != nil {
+		fmt.Printf("[DURATION] ffprobe failed: %v\n", err)
+		return
+	}
+	fmt.Printf("[DURATION] ffprobe output: %s\n", string(output))
+	var probe struct {
+		Format struct {
+			Duration string `json:"duration"`
+		} `json:"format"`
+	}
+	if err := json.Unmarshal(output, &probe); err != nil {
+		fmt.Printf("[DURATION] Failed to unmarshal ffprobe output: %v\n", err)
+		return
+	}
+	store.Mutex.Lock()
+	if store.Metadata == nil {
+		store.Metadata = make(map[string]map[int]float64)
+	}
+	if store.Metadata[infoHash] == nil {
+		store.Metadata[infoHash] = make(map[int]float64)
+	}
+	dur, _ := strconv.ParseFloat(probe.Format.Duration, 64)
+	store.Metadata[infoHash][fileIdx] = dur
+	store.Mutex.Unlock()
+	fmt.Printf("[DURATION] Stored duration %.2f seconds for infoHash=%s fileIdx=%d\n", dur, infoHash, fileIdx)
 }
 
 // manageSlidingWindow manages a sliding window of prioritized pieces for efficient streaming
