@@ -1,0 +1,54 @@
+import express from 'express';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { addTorrent, removeTorrent, getTorrentInfo } from './torrentManager.js';
+import { getTorrentStream } from './videoServer.js';
+
+// Load env
+dotenv.config();
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const PORT = process.env.PORT || 8888;
+const HLS_OUTPUT_DIR = process.env.HLS_OUTPUT_DIR || path.join(__dirname, '../public/hls');
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// POST /add { magnet, fileIdx }
+app.post('/add', async (req, res) => {
+  const { magnet, fileIdx } = req.body;
+  if (!magnet) return res.status(400).json({ error: 'Missing magnet URI' });
+  if (fileIdx === undefined || fileIdx === null) return res.status(400).json({ error: 'Missing fileIdx' });
+  try {
+    const info = await addTorrent(magnet, fileIdx);
+    res.json(info);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Add direct stream endpoint
+app.get('/stream/:infoHash/:fileIdx', (req, res) => {
+  const { infoHash, fileIdx } = req.params;
+  return getTorrentStream(infoHash, Number(fileIdx), req, res);
+});
+
+// DELETE /remove/:infoHash
+app.delete('/remove/:infoHash', async (req, res) => {
+  const { infoHash } = req.params;
+  try {
+    await removeTorrent(infoHash);
+    res.json({ removed: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.listen(PORT, () => {
+  console.log(`Torrent Stream Service running on port ${PORT}`);
+});
