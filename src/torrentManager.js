@@ -1,6 +1,6 @@
 import WebTorrent from 'webtorrent';
-const path = require('path');
-const fs = require('fs');
+import path from 'path';
+import fs from 'fs';
 
 const torrents = {};
 
@@ -66,11 +66,14 @@ async function addTorrent(magnet, fileIdx) {
   }
   console.log('[addTorrent] Adding new torrent to client');
   return await new Promise((resolve, reject) => {
-    const DOWNLOAD_DIR = path.resolve(__dirname, '../downloads');
+    let downloadPath = path.dirname(new URL(import.meta.url).pathname);
+    if (process.platform === 'win32' && downloadPath.startsWith('/')) {
+      downloadPath = downloadPath.slice(1);
+    }
+    const DOWNLOAD_DIR = path.resolve(downloadPath, '../downloads');
     if (!fs.existsSync(DOWNLOAD_DIR)) {
       fs.mkdirSync(DOWNLOAD_DIR, { recursive: true });
     }
-
     const torrent = client.add(magnet, { path: DOWNLOAD_DIR, destroyStoreOnDestroy: true });
     torrent.on('ready', () => {
       torrents[torrent.infoHash] = torrent;
