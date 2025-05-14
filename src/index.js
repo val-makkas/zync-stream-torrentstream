@@ -1,19 +1,13 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { addTorrent, removeTorrent, getTorrentInfo } from './torrentManager.js';
 import { getTorrentStream } from './videoServer.js';
 
 // Load env
 dotenv.config();
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const PORT = process.env.PORT || 8888;
-const HLS_OUTPUT_DIR = process.env.HLS_OUTPUT_DIR || path.join(__dirname, '../public/hls');
 
 const app = express();
 app.use(cors());
