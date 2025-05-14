@@ -35,6 +35,7 @@ app.get('/stream/:infoHash/:fileIdx', (req, res) => {
 // DELETE /remove/:infoHash
 app.delete('/remove/:infoHash', async (req, res) => {
   const { infoHash } = req.params;
+  console.log(`removed ${infoHash}`)
   try {
     await removeTorrent(infoHash);
     res.json({ removed: true });
