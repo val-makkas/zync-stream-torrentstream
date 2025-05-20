@@ -4,7 +4,10 @@ import fs from 'fs';
 
 const torrents = {};
 
-const client = new WebTorrent();
+const client = new WebTorrent({
+  torrentPort: 50000,
+  dhtPort: 50001 
+});
 
 function parseInfoHash(magnet) {
   // Extract infoHash from magnet URI

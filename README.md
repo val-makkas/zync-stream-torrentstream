@@ -1,4 +1,4 @@
-# absolute-cinema-torrentstream
+# zync-stream-torrentstream
 
 TorrentStream is a Node.js microservice for streaming torrents as video over HTTP, used in Absolute Cinema.
 
