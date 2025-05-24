@@ -1,4 +1,5 @@
 import { getTorrentInfo } from './torrentManager.js';
+import path from 'path'
 
 function getTorrentStream(infoHash, fileIdx, req, res) {
   const torrent = getTorrentInfo(infoHash);
@@ -62,4 +63,54 @@ function getTorrentStream(infoHash, fileIdx, req, res) {
   stream.pipe(res);
 }
 
-export { getTorrentStream };
+function downloadTorrentFile(infoHash, fileIdx, req, res) {
+  const torrent = getTorrentInfo(infoHash);
+  if (!torrent) {
+    return res.status(404).json({ success: false, error: 'Torrent not found' });
+  }
+  
+  const file = torrent.files[fileIdx];
+  if (!file) {
+    return res.status(404).json({ success: false, error: 'File not found in torrent' });
+  }
+
+  try {
+    // Since WebTorrent is already downloading the file, just get its local path
+    // WebTorrent stores files in the torrent's download directory
+    const torrentDownloadPath = torrent.path; // Base download directory
+    const localFilePath = path.join(torrentDownloadPath, file.path);
+    
+    // Check if file has started downloading and has some data
+    const downloadProgress = (file.downloaded / file.length) * 100;
+    
+    if (file.downloaded === 0) {
+      return res.status(202).json({ 
+        success: false, 
+        error: 'File is still starting download. Please wait...',
+        downloading: true,
+        progress: downloadProgress
+      });
+    }
+
+    // Return the local file path where WebTorrent is already downloading/storing the file
+    res.json({
+      success: true,
+      localPath: localFilePath,
+      hash: infoHash,
+      segment: fileIdx.toString(),
+      downloaded: file.downloaded,
+      total: file.length,
+      progress: downloadProgress,
+      isComplete: file.downloaded === file.length
+    });
+
+  } catch (error) {
+    console.error('Error in downloadTorrentFile:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+}
+
+export { getTorrentStream, downloadTorrentFile };

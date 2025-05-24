@@ -1,8 +1,8 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { addTorrent, removeTorrent, getTorrentInfo } from './torrentManager.js';
-import { getTorrentStream } from './videoServer.js';
+import { addTorrent, removeTorrent } from './torrentManager.js';
+import { getTorrentStream, downloadTorrentFile } from './videoServer.js';
 
 // Load env
 dotenv.config();
@@ -30,6 +30,11 @@ app.post('/add', async (req, res) => {
 app.get('/stream/:infoHash/:fileIdx', (req, res) => {
   const { infoHash, fileIdx } = req.params;
   return getTorrentStream(infoHash, Number(fileIdx), req, res);
+});
+
+app.get('/download/:infoHash/:fileIdx', (req, res) => {
+  const { infoHash, fileIdx } = req.params;
+  return downloadTorrentFile(infoHash, Number(fileIdx), req, res);
 });
 
 // DELETE /remove/:infoHash
