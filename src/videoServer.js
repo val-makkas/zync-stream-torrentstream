@@ -12,7 +12,6 @@ function getTorrentStream(infoHash, fileIdx, req, res) {
   }
   const total = file.length;
   const range = req.headers.range;
-  // Detect mime type
   let mimeType = 'application/octet-stream';
   if (file.name && file.name.toLowerCase().endsWith('.mp4')) {
     mimeType = 'video/mp4';
@@ -75,12 +74,8 @@ function downloadTorrentFile(infoHash, fileIdx, req, res) {
   }
 
   try {
-    // Since WebTorrent is already downloading the file, just get its local path
-    // WebTorrent stores files in the torrent's download directory
-    const torrentDownloadPath = torrent.path; // Base download directory
     const localFilePath = path.join(torrentDownloadPath, file.path);
     
-    // Check if file has started downloading and has some data
     const downloadProgress = (file.downloaded / file.length) * 100;
     
     if (file.downloaded === 0) {
@@ -92,7 +87,6 @@ function downloadTorrentFile(infoHash, fileIdx, req, res) {
       });
     }
 
-    // Return the local file path where WebTorrent is already downloading/storing the file
     res.json({
       success: true,
       localPath: localFilePath,
