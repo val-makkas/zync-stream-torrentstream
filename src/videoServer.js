@@ -42,7 +42,6 @@ function getTorrentStream(infoHash, fileIdx, req, res) {
     });
     stream = file.createReadStream();
   }
-  // Cleanup and error handling
   const cleanup = () => {
     if (stream && !stream.destroyed) {
       stream.destroy();
